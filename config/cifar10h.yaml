@@ -1,0 +1,9 @@
+# CIFAR-10H dataset config (paths resolve via cac/config.py).
+dataset: cifar10h
+n_images: 10000
+n_classes: 10
+hard_pct: 70        # entropy percentile defining 'truly hard' (matches v4)
+budget: 0.25        # frontier-call budget fraction
+min_alignment: 0.93 # gate: argmax(human_probs) vs CIFAR-10 labels agreement
+classes:
+  [airplane, automobile, bird, cat, deer, dog, frog, horse, ship, truck]

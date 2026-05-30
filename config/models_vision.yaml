@@ -1,0 +1,40 @@
+runner:
+  max_model_len: 4096
+  gpu_memory_utilization: 0.92
+  max_num_seqs: 4
+  enforce_eager: true
+  trust_remote_code: true
+models:
+  - key: qwen2_vl_2b
+    id: Qwen/Qwen2-VL-2B-Instruct
+    quantization: null
+  - key: internvl2_2b
+    id: OpenGVLab/InternVL2-2B
+    quantization: null
+profiles:
+  hpc:
+    - key: qwen2_vl_7b
+      id: Qwen/Qwen2-VL-7B-Instruct-AWQ
+      quantization: awq
+    - key: internvl2_8b
+      id: OpenGVLab/InternVL2-8B-AWQ
+      quantization: awq
+    - key: phi_3_5_vision
+      id: microsoft/Phi-3.5-vision-instruct
+      quantization: null
+  hpc_3fx2m:
+    - key: qwen2_vl_2b
+      id: Qwen/Qwen2-VL-2B-Instruct
+      quantization: null
+    - key: qwen2_vl_7b
+      id: Qwen/Qwen2-VL-7B-Instruct-AWQ
+      quantization: awq
+    - key: internvl2_2b
+      id: OpenGVLab/InternVL2-2B
+      quantization: null
+    - key: internvl2_8b
+      id: OpenGVLab/InternVL2-8B-AWQ
+      quantization: awq
+    - key: phi_3_5_vision
+      id: microsoft/Phi-3.5-vision-instruct
+      quantization: null

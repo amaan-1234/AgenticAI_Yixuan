@@ -1,0 +1,16 @@
+# Heavy deps for VLM inference (Phase 1.1). Install ONLY inside WSL2 Ubuntu or on
+# the HPC (Linux + CUDA). vLLM is not supported on native Windows.
+#
+# vLLM bundles a matching torch build and the guided-decoding backends (outlines /
+# xgrammar) used for structured JSON. Do NOT pip-install torch separately first —
+# let vLLM pull its compatible version.
+#
+# Pin a version verified to support the chosen VLMs (Qwen2.5-VL / InternVL2 / LLaVA-1.6).
+# Bump deliberately and re-run the 100-image smoke test after any upgrade.
+vllm==0.6.3.post1
+transformers>=4.46
+pillow>=10.0
+numpy>=1.26
+pyyaml>=6.0
+# outlines is pulled in by vllm for guided_json; list explicitly if you hit version skew:
+# outlines>=0.1.0

@@ -1,0 +1,14 @@
+# data + model outputs (regenerate via run/prepare_data, extract_embeddings, inference)
+data/
+outputs/
+.hf_cache/
+
+# python
+__pycache__/
+*.pyc
+.venv*/
+.pytest_cache/
+
+# os/editor
+.DS_Store
+Thumbs.db
