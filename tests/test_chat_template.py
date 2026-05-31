@@ -14,6 +14,10 @@ from cac.models.vllm_runner import VLMRunner, _build_user_messages, _family
     ("Qwen/Qwen2-VL-7B-Instruct-AWQ", "qwen2_vl"),
     ("OpenGVLab/InternVL2-2B", "internvl2"),
     ("OpenGVLab/InternVL2-8B-AWQ", "internvl2"),
+    ("microsoft/Phi-3.5-vision-instruct", "phi3v"),
+    ("microsoft/Phi-3-vision-128k-instruct", "phi3v"),
+    # text-only Phi-3 must not match phi3v (no 'vision' in id)
+    ("microsoft/Phi-3-mini-4k-instruct", "unknown"),
     ("llava-hf/llava-onevision-qwen2-0.5b-ov-hf", "llava"),
     ("llava-hf/llava-v1.6-vicuna-7b-hf", "llava"),
     ("llava-hf/llava-1.5-7b-hf", "llava"),
@@ -30,6 +34,15 @@ def test_internvl2_uses_string_content_with_image_placeholder():
     assert isinstance(msgs[0]["content"], str)
     assert "<image>" in msgs[0]["content"]
     assert "classify this image" in msgs[0]["content"]
+
+
+def test_phi3v_uses_string_content_with_image_1_placeholder():
+    msgs = _build_user_messages("microsoft/Phi-3.5-vision-instruct", "classify this image")
+    assert isinstance(msgs[0]["content"], str)
+    assert "<|image_1|>" in msgs[0]["content"]
+    assert "classify this image" in msgs[0]["content"]
+    # phi3v must NOT reuse InternVL's <image> placeholder
+    assert "<image>" not in msgs[0]["content"].replace("<|image_1|>", "")
 
 
 @pytest.mark.parametrize("model_id", [
@@ -85,3 +98,35 @@ def test_chat_text_llava_passes_list_content_to_template():
     args, _ = r.processor.apply_chat_template.call_args
     messages = args[0]
     assert isinstance(messages[0]["content"], list)
+
+
+def test_chat_text_phi3v_uses_processor_tokenizer_not_processor():
+    """Phi3VProcessor has no chat_template; the template lives on the wrapped
+    tokenizer. _chat_text must route to processor.tokenizer.apply_chat_template
+    for phi3v and never touch the processor-level method."""
+    r = _mock_runner("microsoft/Phi-3.5-vision-instruct")
+    r.processor.tokenizer.apply_chat_template.return_value = "PHI3V_RENDERED"
+    assert r._chat_text("classify") == "PHI3V_RENDERED"
+    # processor-level apply_chat_template must NOT have been called
+    assert r.processor.apply_chat_template.call_count == 0
+    args, kwargs = r.processor.tokenizer.apply_chat_template.call_args
+    messages = args[0]
+    assert isinstance(messages[0]["content"], str)
+    assert "<|image_1|>" in messages[0]["content"]
+    assert kwargs.get("add_generation_prompt") is True
+
+
+def test_chat_text_qwen2vl_does_not_touch_tokenizer_path():
+    """Regression guard: the existing Qwen/InternVL/LLaVA path must keep using
+    processor.apply_chat_template and never fall through to the tokenizer."""
+    r = _mock_runner("Qwen/Qwen2-VL-7B-Instruct-AWQ")
+    r._chat_text("classify")
+    assert r.processor.apply_chat_template.call_count == 1
+    assert r.processor.tokenizer.apply_chat_template.call_count == 0
+
+
+def test_chat_text_internvl2_does_not_touch_tokenizer_path():
+    r = _mock_runner("OpenGVLab/InternVL2-8B-AWQ")
+    r._chat_text("classify")
+    assert r.processor.apply_chat_template.call_count == 1
+    assert r.processor.tokenizer.apply_chat_template.call_count == 0

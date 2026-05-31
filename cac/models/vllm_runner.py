@@ -27,14 +27,18 @@ UPSCALE = 224  # CIFAR-10 is 32x32; upscale before the vision encoder
 def _family(model_id: str) -> str:
     """Identify the chat-template family from a HF model id (case-insensitive substring).
 
-    Returns one of 'qwen2_vl', 'internvl2', 'llava', 'unknown'. The model ids in
-    config/models_vision.yaml are canonical, so substring matching is reliable here.
+    Returns one of 'qwen2_vl', 'internvl2', 'phi3v', 'llava', 'unknown'. The model
+    ids in config/models_vision.yaml are canonical, so substring matching is
+    reliable here. Phi3V requires both 'phi-3' and 'vision' so text-only Phi-3
+    checkpoints (e.g. Phi-3-mini-4k-instruct) don't match.
     """
     m = model_id.lower()
     if "internvl2" in m:
         return "internvl2"
     if "qwen2-vl" in m or "qwen2_vl" in m:
         return "qwen2_vl"
+    if "phi-3" in m and "vision" in m:
+        return "phi3v"
     if "llava" in m:
         return "llava"
     return "unknown"
@@ -45,11 +49,15 @@ def _build_user_messages(model_id: str, instruction: str) -> list[dict]:
 
     InternVL2 concatenates `content` as a string in its template (and a list-of-parts
     triggers `TypeError: can only concatenate str (not 'list') to str`), so InternVL2
-    gets string content with an embedded `<image>` placeholder. Qwen2-VL and LLaVA
-    iterate over a list of content parts.
+    gets string content with an embedded `<image>` placeholder. Phi3V uses the same
+    string-content shape but with `<|image_1|>` as its image placeholder. Qwen2-VL
+    and LLaVA iterate over a list of content parts.
     """
-    if _family(model_id) == "internvl2":
+    fam = _family(model_id)
+    if fam == "internvl2":
         return [{"role": "user", "content": f"<image>\n{instruction}"}]
+    if fam == "phi3v":
+        return [{"role": "user", "content": f"<|image_1|>\n{instruction}"}]
     return [{
         "role": "user",
         "content": [{"type": "image"}, {"type": "text", "text": instruction}],
@@ -90,6 +98,13 @@ class VLMRunner:
     # ---- prompt construction -------------------------------------------------
     def _chat_text(self, instruction: str) -> str:
         messages = _build_user_messages(self.model_id, instruction)
+        # Phi3VProcessor doesn't expose chat_template on the processor itself —
+        # it lives on the wrapped tokenizer. Other families (Qwen2-VL, InternVL2,
+        # LLaVA) keep the processor-level path that AutoProcessor wires up.
+        if _family(self.model_id) == "phi3v":
+            return self.processor.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True
+            )
         return self.processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
