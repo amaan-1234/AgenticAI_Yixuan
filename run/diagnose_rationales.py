@@ -115,6 +115,27 @@ def _print_model(key: str, mock: bool = False):
         marker = " <-- recovery would fix" if b.startswith("recovered") else ""
         print(f"    {b:<22} {cnt:>4} ({pct:>5.1f}%){marker}")
 
+    # raw_len distribution per bucket — if recovered_partial sits at the
+    # max_tokens ceiling while ok/recovered_full sits well below it, the parser
+    # is fine and the budget is the bottleneck (raise max_tokens or shorten
+    # prompt). If partial and full overlap in length, the model is simply
+    # omitting fields and the budget will not help.
+    print("  raw_len distribution by bucket:")
+    for b in ("ok", "recovered_full", "recovered_partial",
+              "no_rationale_field", "json_error"):
+        lens = [len(r.get("rationale_raw", "")) for r in buckets[b]]
+        if not lens:
+            continue
+        if len(lens) >= 4:
+            q = statistics.quantiles(lens, n=4)
+            stats_line = (f"mean={statistics.mean(lens):.0f} "
+                          f"min={min(lens)} q25={q[0]:.0f} med={q[1]:.0f} "
+                          f"q75={q[2]:.0f} max={max(lens)}")
+        else:
+            stats_line = (f"mean={statistics.mean(lens):.0f} "
+                          f"min={min(lens)} max={max(lens)} (n={len(lens)})")
+        print(f"    {b:<22} {stats_line}")
+
     for b in ("recovered_full", "recovered_partial", "no_rationale_field", "json_error"):
         if buckets[b]:
             _print_failure_examples(b, buckets[b])
@@ -155,20 +176,54 @@ def _print_recommendation(per_model: dict[str, dict[str, int]]):
           f"no_rationale_field={tot['no_rationale_field']}, empty_raw={tot['empty_raw']}")
 
     print("\n  RECOMMENDATION:")
-    if current_empties == 0:
-        print("    No empty rationales — pipeline is clean. Nothing to do.")
+    if current_empties == 0 and tot["recovered_partial"] == 0:
+        print("    No empty or partial rationales — pipeline is clean. Nothing to do.")
+    elif current_empties == 0:
+        # All rationales are at least readable, but some are missing fields.
+        # Surface this as a separate state so the user knows the parser is
+        # fine and the bottleneck is the budget / prompt.
+        print("    No EMPTY rationales — parser + recovery are working. But "
+              f"{tot['recovered_partial']} record(s) are PARTIAL "
+              "(missing tail field like confidence_qualifier).")
+        print("    Options to push partial -> ok:")
+        print("      (a) raise rationale_call max_tokens 512 -> 640 (smallest "
+              "change; works if raw_len is at the ceiling).")
+        print("      (b) shorten the rationale prompt for the affected model "
+              "family (the verbose-by-default models — InternVL2 in particular).")
+        print("    The raw_len distribution above tells you which: if partial "
+              "raw_len max ~= budget*4 chars while ok raw_len sits well below, "
+              "raise the budget; if they overlap, the model is choosing not to "
+              "emit the field and a tighter prompt is the right fix.")
     elif recoverable >= 0.8 * current_empties and recoverable > 0:
         print("    Structural recovery resolves the bulk of failures (>=80%).")
         print("    The runner wiring in this change already deploys it — rerun the")
         print("    WSL2 smoke and the empty rate should drop sharply.")
         if tot["recovered_partial"] > 0.2 * recoverable:
             print("    NOTE: many recoveries are PARTIAL (truncation lost keys). To get")
-            print("    full rationales, also raise rationale_call max_tokens above 384.")
+            print("    full rationales, also raise rationale_call max_tokens above 512.")
     else:
         print("    Structural recovery alone is INSUFFICIENT (<80% of empties).")
-        print("    Next moves: (a) raise rationale_call max_tokens (try 512-768) if")
+        print("    Next moves: (a) raise rationale_call max_tokens (try 640-768) if")
         print("    json_error count is high, (b) consider flattening the schema to")
         print("    {label, key_features, reasoning} if no_rationale_field dominates.")
+
+    # Per-model action items — flag every model whose partial >> full so the
+    # caller knows exactly where to apply the fix (e.g. InternVL only).
+    partial_dominant = [(k, s) for k, s in per_model.items()
+                        if s and s["recovered_partial"] > s["recovered_full"]
+                        and s["recovered_partial"] >= 5]
+    if partial_dominant:
+        print("\n  PER-MODEL action items (partial-dominant):")
+        for k, s in partial_dominant:
+            total = sum(s.values())
+            pct = s["recovered_partial"] / total * 100 if total else 0
+            print(f"    [{k}] partial={s['recovered_partial']}/{total} ({pct:.0f}%), "
+                  f"full={s['recovered_full']}")
+            print(f"      -> first try max_tokens=640 (one-line bump in "
+                  f"VLMRunner.rationale_call default).")
+            print(f"      -> if still partial after rerun, swap to a shorter "
+                  f"prompt for this model family (e.g. drop the "
+                  f"'confidence_qualifier' instruction line).")
 
 
 # --- main ---------------------------------------------------------------------

@@ -3,9 +3,11 @@
     python -m run.report
 
 Run after build_results (the HPC aggregate job does this automatically). On a
-100-image pilot it answers the key question cheaply: do the real VLM soft-label
-distributions track human entropy at all? Verdict rule (user's): Pearson r(JSD) > 0.4
-=> healthy, scale to 10k; near zero => investigate the prompt / logprob extraction.
+100-image pilot it answers the key question cheaply: does the dual escalation
+signal (alpha*JSD + beta*(1-MTA)) track human entropy at all? Verdict rule:
+Pearson r(dual) > 0.4 AND dr = r_dual - r_jsd > 0 => healthy, scale to 10k. If
+MTA is unavailable (no cache), fall back to r_jsd > 0.4 as the gate. r_jsd is
+reported informationally so a JSD-alone collapse is still visible.
 
 Also runnable locally on fixtures (numbers will be simulation-like, not real).
 """
@@ -25,8 +27,13 @@ from cac.pipeline import weights
 from cac.pipeline.metrics import correlations, normalise_01
 from cac.targets import human_entropy as entropy_of
 
-# v4 simulation benchmarks (from the lit review / test_disagreement_v4.py).
+# v4 simulation benchmarks on the FULL CIFAR-10H dataset (~10k images), from
+# the lit review / test_disagreement_v4.py. These are context, not a like-for-like
+# delta against a pilot N — at N<=200 simulation r drops toward ~0.4 as well, so
+# the delta column is informational only and the table header makes the size
+# mismatch explicit.
 V4 = {"r_jsd": 0.668, "rho_jsd": 0.816, "r_dual": 0.796, "frontier_pct": 0.25}
+V4_N = "~10k"
 
 
 def _validation_failures(keys):
@@ -66,7 +73,7 @@ def _row(label, real, bench, fmt="{:.4f}"):
     rs = fmt.format(real) if real is not None else "  n/a"
     bs = fmt.format(bench) if bench is not None else "  n/a"
     delta = f"{real - bench:+.4f}" if (real is not None and bench is not None) else "   -"
-    print(f"  {label:<28} {rs:>10} {bs:>12} {delta:>10}")
+    print(f"  {label:<28} {rs:>12} {bs:>14} {delta:>10}")
 
 
 def main():
@@ -92,13 +99,17 @@ def main():
 
     bar = "=" * 64
     print(f"\n{bar}\nREALITY-CHECK REPORT  (N={n}, models={keys})\n{bar}")
-    print(f"  {'metric':<28} {'REAL':>10} {'v4 sim':>12} {'delta':>10}")
-    print("  " + "-" * 60)
+    real_col = f"REAL (N={n})"
+    sim_col = f"v4 sim ({V4_N})"
+    print(f"  {'metric':<28} {real_col:>12} {sim_col:>14} {'delta':>10}")
+    print("  " + "-" * 64)
     _row("Pearson r (JSD vs H_human)", r_jsd, V4["r_jsd"])
     _row("Spearman rho (JSD)", rho_jsd, V4["rho_jsd"])
     _row("Pearson r (dual signal)", r_dual, V4["r_dual"])
     if esc_rate is not None:
         _row("Escalation rate", esc_rate, V4["frontier_pct"], fmt="{:.3f}")
+    print(f"  (delta is informational; v4 sim is full-dataset, "
+          f"sim r drops toward ~0.4 at this N)")
 
     if mta is not None:
         q = np.percentile(mta, [0, 25, 50, 75, 100])
@@ -113,12 +124,30 @@ def main():
         print(f"    {key:<22} records={v['n']:>6}  bad_dist={v['bad_dist']:>4}  "
               f"empty_rationale={v['empty_rationale']:>4}")
 
-    print("\n  " + "-" * 60)
-    if r_jsd > 0.4:
-        print(f"  VERDICT: HEALTHY (r_jsd={r_jsd:.3f} > 0.4) -> scale to the full 10k run.")
+    print("\n  " + "-" * 64)
+    # Production signal is dual (alpha*JSD + beta*(1-MTA)); gate on r_dual when
+    # MTA is available, fall back to r_jsd only when MTA cache is missing.
+    if r_dual is not None:
+        dr = r_dual - r_jsd
+        print(f"  [info] r_jsd={r_jsd:.3f}  r_dual={r_dual:.3f}  dr={dr:+.3f}")
+        if r_dual > 0.4 and dr > 0:
+            print(f"  VERDICT: HEALTHY (r_dual={r_dual:.3f} > 0.4, dr={dr:+.3f} > 0) "
+                  f"-> scale to the full 10k run.")
+        elif r_dual > 0.4:
+            print(f"  VERDICT: INVESTIGATE (r_dual={r_dual:.3f} > 0.4 but "
+                  f"dr={dr:+.3f} <= 0; MTA is not adding signal -> check MTA "
+                  f"cache / rationale empties before scaling).")
+        else:
+            print(f"  VERDICT: INVESTIGATE (r_dual={r_dual:.3f} <= 0.4) -> check "
+                  f"the prompt / logprob extraction / MTA pipeline before scaling.")
     else:
-        print(f"  VERDICT: INVESTIGATE (r_jsd={r_jsd:.3f} <= 0.4) -> check the prompt / "
-              f"logprob extraction / image preprocessing before scaling.")
+        print(f"  [info] r_jsd={r_jsd:.3f}  (no MTA cache; dual signal unavailable)")
+        if r_jsd > 0.4:
+            print(f"  VERDICT: HEALTHY (r_jsd={r_jsd:.3f} > 0.4, JSD-only fallback) "
+                  f"-> run compute_mta then re-verdict on dual before scaling.")
+        else:
+            print(f"  VERDICT: INVESTIGATE (r_jsd={r_jsd:.3f} <= 0.4) -> check the "
+                  f"prompt / logprob extraction / image preprocessing before scaling.")
     print(bar)
 
 
