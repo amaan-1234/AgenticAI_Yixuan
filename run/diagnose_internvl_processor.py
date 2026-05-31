@@ -111,7 +111,7 @@ def _print_processor_config(proc, model_id: str):
 
 def _print_runtime_shape(proc, model_id: str, image_np):
     """Feed one image through the runner's exact _prep_image and report shapes."""
-    pil = VLMRunner._prep_image(image_np)
+    pil = VLMRunner._prep_image(image_np, model_id)
     print(f"  [runtime] PIL after VLMRunner._prep_image: size={pil.size} mode={pil.mode}")
 
     text = "What is in this image? Answer with a single letter A-J."

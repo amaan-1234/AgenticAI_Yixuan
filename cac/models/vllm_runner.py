@@ -21,7 +21,18 @@ from PIL import Image
 
 from cac.models import prompts, schema
 
-UPSCALE = 224  # CIFAR-10 is 32x32; upscale before the vision encoder
+# CIFAR-10 is 32x32; we upscale to a family-appropriate target before the vision
+# encoder sees it. InternVL2's encoder operates on 448x448 native tiles, so feeding
+# it 224x224 forces the dynamic tiler to do an implicit upscale + tile redundancy
+# that flattens logits (HPC measurement: mean max-prob 0.69 vs Qwen's 0.93 on the
+# same 4-image CIFAR-10H batch — fixed once this map routes InternVL to 448).
+IMAGE_INPUT_SIZE_BY_FAMILY = {
+    "internvl2": 448,
+    "qwen2_vl":  224,
+    "phi3v":     224,
+    "llava":     224,
+    "unknown":   224,
+}
 
 
 def _family(model_id: str) -> str:
@@ -110,12 +121,17 @@ class VLMRunner:
         )
 
     @staticmethod
-    def _prep_image(img: np.ndarray) -> Image.Image:
-        return Image.fromarray(img).convert("RGB").resize((UPSCALE, UPSCALE), Image.BICUBIC)
+    def _prep_image(img: np.ndarray, model_id: str) -> Image.Image:
+        """Resize CIFAR-10 32x32 to the family-appropriate target for the vision encoder."""
+        target = IMAGE_INPUT_SIZE_BY_FAMILY.get(
+            _family(model_id), IMAGE_INPUT_SIZE_BY_FAMILY["unknown"]
+        )
+        return Image.fromarray(img).convert("RGB").resize((target, target), Image.BICUBIC)
 
     def _inputs(self, instruction: str, images: list[np.ndarray]) -> list[dict]:
         text = self._chat_text(instruction)
-        return [{"prompt": text, "multi_modal_data": {"image": self._prep_image(im)}}
+        return [{"prompt": text,
+                 "multi_modal_data": {"image": self._prep_image(im, self.model_id)}}
                 for im in images]
 
     # ---- the two calls -------------------------------------------------------

@@ -2,9 +2,15 @@
 
 from unittest.mock import MagicMock
 
+import numpy as np
 import pytest
 
-from cac.models.vllm_runner import VLMRunner, _build_user_messages, _family
+from cac.models.vllm_runner import (
+    IMAGE_INPUT_SIZE_BY_FAMILY,
+    VLMRunner,
+    _build_user_messages,
+    _family,
+)
 
 
 # --- _family detection --------------------------------------------------------
@@ -130,3 +136,43 @@ def test_chat_text_internvl2_does_not_touch_tokenizer_path():
     r._chat_text("classify")
     assert r.processor.apply_chat_template.call_count == 1
     assert r.processor.tokenizer.apply_chat_template.call_count == 0
+
+
+# --- family-aware _prep_image resize target ----------------------------------
+
+@pytest.mark.parametrize("model_id, expected_size", [
+    ("OpenGVLab/InternVL2-8B-AWQ",                448),
+    ("OpenGVLab/InternVL2-2B",                    448),
+    ("Qwen/Qwen2-VL-7B-Instruct-AWQ",             224),
+    ("Qwen/Qwen2-VL-2B-Instruct",                 224),
+    ("microsoft/Phi-3.5-vision-instruct",         224),
+    ("llava-hf/llava-onevision-qwen2-0.5b-ov-hf", 224),
+    ("some/other-model",                          224),
+])
+def test_prep_image_resize_target_by_family(model_id, expected_size):
+    """InternVL2 must get 448x448 (native tile size); everyone else 224x224.
+
+    Fixes HPC measurement: InternVL2-8B mean max-prob 0.69 vs Qwen 0.93 on the
+    same CIFAR batch — the 224x224 upscale forced InternVL's dynamic tiler into
+    redundant tiling that flattened logits. Routing InternVL to 448 matches its
+    encoder's native input and removes the bottleneck.
+    """
+    img = np.zeros((32, 32, 3), dtype=np.uint8)
+    pil = VLMRunner._prep_image(img, model_id)
+    assert pil.size == (expected_size, expected_size)
+    assert pil.mode == "RGB"
+
+
+def test_image_input_size_map_covers_all_known_families():
+    """If a new family is added to _family, it must also appear in the size map
+    or the .get() fallback will silently downscale it to the 'unknown' default."""
+    assert set(IMAGE_INPUT_SIZE_BY_FAMILY) >= {
+        "internvl2", "qwen2_vl", "phi3v", "llava", "unknown",
+    }
+
+
+def test_prep_image_unknown_family_falls_back_to_unknown_default():
+    img = np.zeros((32, 32, 3), dtype=np.uint8)
+    pil = VLMRunner._prep_image(img, "totally/unrecognized")
+    assert pil.size == (IMAGE_INPUT_SIZE_BY_FAMILY["unknown"],
+                        IMAGE_INPUT_SIZE_BY_FAMILY["unknown"])
