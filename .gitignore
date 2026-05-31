@@ -1,6 +1,7 @@
 # data + model outputs (regenerate via run/prepare_data, extract_embeddings, inference)
-data/
-outputs/
+# leading slash anchors to repo root so `cac/data/` (a Python package) is NOT ignored
+/data/
+/outputs/
 .hf_cache/
 
 # python
