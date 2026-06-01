@@ -36,15 +36,13 @@ IMAGE_INPUT_SIZE_BY_FAMILY = {
 }
 
 # Family-specific multimodal processor overrides passed to vLLM's LLM() constructor
-# via mm_processor_kwargs (vLLM 0.6.3+). InternVL2's plugin defaults to dynamic
-# high-res tiling (1-12 native 448x448 tiles based on aspect ratio); on the small
-# CIFAR upscale that misfires into redundant tiles and flattens logits. Forcing
-# max_dynamic_patch=1 keeps the encoder on a single tile so the soft labels reflect
-# real model uncertainty rather than tile-averaging noise. None means "leave vLLM
-# defaults"; the LLM kwarg is only set when this lookup returns a dict.
-_MM_PROCESSOR_KWARGS_BY_FAMILY = {
-    "internvl2": {"max_dynamic_patch": 1},
-}
+# via mm_processor_kwargs (vLLM 0.6.3+). Currently empty by design: the InternVL2
+# {"max_dynamic_patch": 1} override (bd43c22) regressed AWQ measurements on HPC
+# (mean max-prob 0.597 -> 0.552) and the move to fp16 InternVL2-8B doesn't need
+# the override at all (fp16 baseline 0.689 with no special handling). Architecture
+# preserved so a future family-specific override is one line; the LLM() call only
+# includes the kwarg when this lookup returns a dict.
+_MM_PROCESSOR_KWARGS_BY_FAMILY: dict[str, dict] = {}
 
 
 def _family(model_id: str) -> str:

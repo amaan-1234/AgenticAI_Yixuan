@@ -42,3 +42,15 @@ def test_quantization_still_lifts():
     kw = _resolve_runner_kwargs(GLOBAL, entry)
     assert kw["quantization"] == "awq"
     assert kw["max_model_len"] == 4096      # untouched
+
+
+def test_dtype_lifts_from_top_level():
+    """Per-model dtype overrides the global default. Required for the hpc profile's
+    fp16 InternVL2-8B entry where vLLM otherwise picks bfloat16 and crashes on the
+    fp16-saved weights."""
+    entry = {"key": "internvl2_8b", "id": "OpenGVLab/InternVL2-8B",
+             "quantization": None, "dtype": "float16"}
+    kw = _resolve_runner_kwargs(GLOBAL, entry)
+    assert kw["dtype"] == "float16"
+    assert kw["quantization"] is None
+    assert kw["max_model_len"] == 4096      # other globals untouched

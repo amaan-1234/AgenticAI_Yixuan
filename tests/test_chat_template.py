@@ -182,20 +182,27 @@ def test_prep_image_unknown_family_falls_back_to_unknown_default():
 
 # --- family-gated mm_processor_kwargs ----------------------------------------
 
-@pytest.mark.parametrize("model_id, expected", [
-    ("OpenGVLab/InternVL2-8B-AWQ",                {"max_dynamic_patch": 1}),
-    ("OpenGVLab/InternVL2-2B",                    {"max_dynamic_patch": 1}),
-    ("Qwen/Qwen2-VL-7B-Instruct-AWQ",             None),
-    ("Qwen/Qwen2-VL-2B-Instruct",                 None),
-    ("microsoft/Phi-3.5-vision-instruct",         None),
-    ("llava-hf/llava-onevision-qwen2-0.5b-ov-hf", None),
-    ("some/other-model",                          None),
+def test_mm_processor_kwargs_currently_empty():
+    """No family override is currently active. The InternVL2 max_dynamic_patch=1
+    override (bd43c22) regressed AWQ measurements on HPC (mean max-prob 0.597 ->
+    0.552); fp16 InternVL2-8B doesn't need it and runs clean (0.689). The map is
+    kept (not deleted) so a future override is one line — adding a new entry
+    here is the entire wire-up since __init__ already looks it up by family."""
+    assert _MM_PROCESSOR_KWARGS_BY_FAMILY == {}
+
+
+@pytest.mark.parametrize("model_id", [
+    "OpenGVLab/InternVL2-8B",
+    "OpenGVLab/InternVL2-2B",
+    "Qwen/Qwen2-VL-7B-Instruct-AWQ",
+    "microsoft/Phi-3.5-vision-instruct",
+    "llava-hf/llava-onevision-qwen2-0.5b-ov-hf",
+    "some/other-model",
 ])
-def test_mm_processor_kwargs_by_family(model_id, expected):
-    """InternVL2 must get max_dynamic_patch=1 to disable redundant tiling;
-    every other family must get None so the kwarg is omitted from the LLM call
-    and vLLM's defaults apply."""
-    assert _MM_PROCESSOR_KWARGS_BY_FAMILY.get(_family(model_id)) == expected
+def test_mm_processor_kwargs_lookup_returns_none_for_all(model_id):
+    """With the map empty, every family resolves to None and __init__ skips the
+    mm_processor_kwargs kwarg entirely (vLLM defaults apply)."""
+    assert _MM_PROCESSOR_KWARGS_BY_FAMILY.get(_family(model_id)) is None
 
 
 def test_mm_processor_kwargs_map_only_contains_known_families():

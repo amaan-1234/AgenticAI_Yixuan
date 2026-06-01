@@ -17,8 +17,14 @@ profiles:
       id: Qwen/Qwen2-VL-7B-Instruct-AWQ
       quantization: awq
     - key: internvl2_8b
-      id: OpenGVLab/InternVL2-8B-AWQ
-      quantization: awq
+      # fp16 instead of AWQ: AWQ checkpoint degraded under every preprocessing
+      # intervention (max-prob 0.597 -> 0.552); fp16 fits fine on A100 80 GB and
+      # gave a clean 0.689 baseline with no special handling. dtype: float16 is
+      # required because vLLM otherwise picks bfloat16 and the InternVL2 weights
+      # are saved in fp16. Cached on HPC; staging will fetch on Windows host.
+      id: OpenGVLab/InternVL2-8B
+      quantization: null
+      dtype: float16
     - key: phi_3_5_vision
       id: microsoft/Phi-3.5-vision-instruct
       quantization: null

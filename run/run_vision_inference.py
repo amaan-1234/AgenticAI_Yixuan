@@ -72,7 +72,7 @@ def _skip_existing(key: str, n: int, mock: bool = False) -> bool:
 # Known LLM kwargs that may appear at the TOP LEVEL of a model entry in
 # models_vision.yaml (alongside `key` / `id`). Top-level wins over both the
 # nested `runner:` block and the global `runner:` defaults.
-_LIFTABLE_KWARGS = ("quantization", "max_model_len")
+_LIFTABLE_KWARGS = ("quantization", "max_model_len", "dtype")
 
 
 def _resolve_runner_kwargs(global_runner: dict, model_entry: dict) -> dict:
