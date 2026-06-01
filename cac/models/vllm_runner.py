@@ -22,16 +22,28 @@ from PIL import Image
 from cac.models import prompts, schema
 
 # CIFAR-10 is 32x32; we upscale to a family-appropriate target before the vision
-# encoder sees it. InternVL2's encoder operates on 448x448 native tiles, so feeding
-# it 224x224 forces the dynamic tiler to do an implicit upscale + tile redundancy
-# that flattens logits (HPC measurement: mean max-prob 0.69 vs Qwen's 0.93 on the
-# same 4-image CIFAR-10H batch — fixed once this map routes InternVL to 448).
+# encoder sees it. Default 224 across families works well — InternVL2 in particular
+# must stay at 224 because feeding it 448 triggers vLLM's InternVL2 plugin into a
+# 2x2 dynamic tile grid from a blurry CIFAR upscale (HPC measurement: 448 input
+# DROPPED mean max-prob from 0.597 to 0.584). InternVL's single-tile path is
+# enforced separately via _MM_PROCESSOR_KWARGS_BY_FAMILY below.
 IMAGE_INPUT_SIZE_BY_FAMILY = {
-    "internvl2": 448,
+    "internvl2": 224,
     "qwen2_vl":  224,
     "phi3v":     224,
     "llava":     224,
     "unknown":   224,
+}
+
+# Family-specific multimodal processor overrides passed to vLLM's LLM() constructor
+# via mm_processor_kwargs (vLLM 0.6.3+). InternVL2's plugin defaults to dynamic
+# high-res tiling (1-12 native 448x448 tiles based on aspect ratio); on the small
+# CIFAR upscale that misfires into redundant tiles and flattens logits. Forcing
+# max_dynamic_patch=1 keeps the encoder on a single tile so the soft labels reflect
+# real model uncertainty rather than tile-averaging noise. None means "leave vLLM
+# defaults"; the LLM kwarg is only set when this lookup returns a dict.
+_MM_PROCESSOR_KWARGS_BY_FAMILY = {
+    "internvl2": {"max_dynamic_patch": 1},
 }
 
 
@@ -87,10 +99,16 @@ class VLMRunner:
         self.processor = AutoProcessor.from_pretrained(
             model_id, trust_remote_code=trust_remote_code
         )
+        # Family-gated multimodal processor overrides (e.g. InternVL2's
+        # max_dynamic_patch=1 to disable redundant tiling). None means "leave
+        # vLLM defaults" and the kwarg is only included in the LLM() call when
+        # there's something to set.
+        mm_processor_kwargs = _MM_PROCESSOR_KWARGS_BY_FAMILY.get(_family(model_id))
         print(f"[vllm] init {model_id}: max_model_len={max_model_len} "
               f"max_num_seqs={max_num_seqs} quantization={quantization} "
-              f"gpu_mem={gpu_memory_utilization}")
-        self.llm = LLM(
+              f"gpu_mem={gpu_memory_utilization} "
+              f"mm_processor_kwargs={mm_processor_kwargs}")
+        llm_kwargs = dict(
             model=model_id,
             quantization=quantization,
             max_model_len=max_model_len,
@@ -105,6 +123,9 @@ class VLMRunner:
             # memory-constrained WSL2. Shipped with vLLM 0.6.3.post1; schema unchanged.
             guided_decoding_backend="lm-format-enforcer",
         )
+        if mm_processor_kwargs is not None:
+            llm_kwargs["mm_processor_kwargs"] = mm_processor_kwargs
+        self.llm = LLM(**llm_kwargs)
 
     # ---- prompt construction -------------------------------------------------
     def _chat_text(self, instruction: str) -> str:

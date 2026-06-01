@@ -8,6 +8,7 @@ import pytest
 from cac.models.vllm_runner import (
     IMAGE_INPUT_SIZE_BY_FAMILY,
     VLMRunner,
+    _MM_PROCESSOR_KWARGS_BY_FAMILY,
     _build_user_messages,
     _family,
 )
@@ -141,8 +142,8 @@ def test_chat_text_internvl2_does_not_touch_tokenizer_path():
 # --- family-aware _prep_image resize target ----------------------------------
 
 @pytest.mark.parametrize("model_id, expected_size", [
-    ("OpenGVLab/InternVL2-8B-AWQ",                448),
-    ("OpenGVLab/InternVL2-2B",                    448),
+    ("OpenGVLab/InternVL2-8B-AWQ",                224),
+    ("OpenGVLab/InternVL2-2B",                    224),
     ("Qwen/Qwen2-VL-7B-Instruct-AWQ",             224),
     ("Qwen/Qwen2-VL-2B-Instruct",                 224),
     ("microsoft/Phi-3.5-vision-instruct",         224),
@@ -150,12 +151,13 @@ def test_chat_text_internvl2_does_not_touch_tokenizer_path():
     ("some/other-model",                          224),
 ])
 def test_prep_image_resize_target_by_family(model_id, expected_size):
-    """InternVL2 must get 448x448 (native tile size); everyone else 224x224.
+    """All families currently resize to 224x224.
 
-    Fixes HPC measurement: InternVL2-8B mean max-prob 0.69 vs Qwen 0.93 on the
-    same CIFAR batch — the 224x224 upscale forced InternVL's dynamic tiler into
-    redundant tiling that flattened logits. Routing InternVL to 448 matches its
-    encoder's native input and removes the bottleneck.
+    The earlier attempt to route InternVL2 to 448 REGRESSED its mean max-prob
+    (0.597 -> 0.584) because vLLM's InternVL2 plugin interpreted the 448 input
+    as room for a 2x2 dynamic tile grid. InternVL2's single-tile path is now
+    enforced via mm_processor_kwargs={'max_dynamic_patch': 1} instead, and the
+    input stays at 224 so the plugin upscales to a single 448 native tile.
     """
     img = np.zeros((32, 32, 3), dtype=np.uint8)
     pil = VLMRunner._prep_image(img, model_id)
@@ -176,3 +178,28 @@ def test_prep_image_unknown_family_falls_back_to_unknown_default():
     pil = VLMRunner._prep_image(img, "totally/unrecognized")
     assert pil.size == (IMAGE_INPUT_SIZE_BY_FAMILY["unknown"],
                         IMAGE_INPUT_SIZE_BY_FAMILY["unknown"])
+
+
+# --- family-gated mm_processor_kwargs ----------------------------------------
+
+@pytest.mark.parametrize("model_id, expected", [
+    ("OpenGVLab/InternVL2-8B-AWQ",                {"max_dynamic_patch": 1}),
+    ("OpenGVLab/InternVL2-2B",                    {"max_dynamic_patch": 1}),
+    ("Qwen/Qwen2-VL-7B-Instruct-AWQ",             None),
+    ("Qwen/Qwen2-VL-2B-Instruct",                 None),
+    ("microsoft/Phi-3.5-vision-instruct",         None),
+    ("llava-hf/llava-onevision-qwen2-0.5b-ov-hf", None),
+    ("some/other-model",                          None),
+])
+def test_mm_processor_kwargs_by_family(model_id, expected):
+    """InternVL2 must get max_dynamic_patch=1 to disable redundant tiling;
+    every other family must get None so the kwarg is omitted from the LLM call
+    and vLLM's defaults apply."""
+    assert _MM_PROCESSOR_KWARGS_BY_FAMILY.get(_family(model_id)) == expected
+
+
+def test_mm_processor_kwargs_map_only_contains_known_families():
+    """Guard against typos in the map — every key must be a real _family() output
+    so a misspelled family name doesn't silently fail to apply its override."""
+    known = {"internvl2", "qwen2_vl", "phi3v", "llava", "unknown"}
+    assert set(_MM_PROCESSOR_KWARGS_BY_FAMILY) <= known
