@@ -19,6 +19,7 @@ from sklearn.model_selection import train_test_split
 
 from cac import config
 from cac.data import target_source
+from cac.data import cifar10h
 from cac.ensemble.jsd import mean_pairwise_jsd
 from cac.pipeline import calibration, figures, metrics, prerouter, weights
 from cac.targets import BUDGET, hard_mask

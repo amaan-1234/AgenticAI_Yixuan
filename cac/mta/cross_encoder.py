@@ -76,14 +76,6 @@ class MTAScorer:
         out = []
         bs = 64
         model.eval()
-        # one-time probe: find any non-str slipping through
-        for lst, nm in ((a, "a"), (b, "b")):
-            for idx, v in enumerate(lst):
-                if not isinstance(v, str):
-                    raise SystemExit(f"[probe] {nm}[{idx}] is {type(v).__name__}: {repr(v)[:200]}")
-        import collections
-        print("[probe] all", len(a), "elements are str; "
-              "empty-after-strip:", sum(1 for v in a+b if v.strip()=="" or v=="[empty]"))
         with torch.no_grad():
             for k in range(0, len(a), bs):
                 feats = tok(a[k:k+bs], b[k:k+bs], padding=True, truncation=True,
