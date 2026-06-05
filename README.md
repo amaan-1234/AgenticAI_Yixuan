@@ -27,7 +27,7 @@ conda activate <env>           # e.g. /home/$USER/.conda/envs/cac
 python -c "import sentence_transformers as st; print(st.__version__)"   # must be 2.7.0
 ```
 
-**Pinned dependencies (critical):** `sentence-transformers==2.7.0` (newer versions change the CrossEncoder API and break MTA), `torch==2.4.0+cu121`, `vllm==0.6.3.post1`, `transformers==4.46.3`, `numpy==1.26.4`. See `requirements.txt`.
+**Pinned dependencies (critical):** `sentence-transformers==2.7.0` (newer versions change the CrossEncoder API and break MTA), `torch==2.4.0+cu121`, `vllm==0.6.3.post1`, `transformers==4.46.3`, `numpy==1.26.4`. See `requirements-gpu.txt` (full GPU stack), `requirements-light.txt` (analysis only), and `requirements.lock` (exact pin for the cross-encoder).
 
 ## Models
 
@@ -97,11 +97,12 @@ python -m run.run_pipeline --real --dataset chaosnli
 
 ### Analyses (no GPU)
 
-Bootstrap CIs, the frontier-budget sweep, and the failure taxonomy are pure post-processing over the saved `outputs/raw/` distributions and MTA arrays. See `analysis/` (or the snippets in the paper appendix).
+Bootstrap CIs, the frontier-budget sweep, and the failure taxonomy are pure post-processing over the saved `outputs/raw/` distributions and MTA arrays. The exact snippets are in the paper appendix; a cleaned `analysis/` directory will collect them in a future revision.
 
 ### Frontier baseline (optional, paid API)
 
 ```bash
+# forthcoming: run/run_frontier.py (added once the frontier model is selected)
 python -m run.run_frontier --subset outputs/chaosnli_frontier_subset.json --model <model>
 ```
 The stratified 450-item subset (entropy terciles) is frozen in `outputs/chaosnli_frontier_subset.json`.
