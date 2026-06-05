@@ -19,7 +19,7 @@ import json
 import numpy as np
 
 from cac import config
-from cac.data import cifar10h
+from cac.data import target_source
 from cac.ensemble import inference
 from cac.ensemble.jsd import mean_pairwise_jsd
 from cac.models.schema import rationale_to_text
@@ -77,9 +77,14 @@ def _row(label, real, bench, fmt="{:.4f}"):
 
 
 def main():
+    import argparse, sys
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--dataset', default='cifar10h', choices=['cifar10h','chaosnli'])
+    args, _ = ap.parse_known_args()
+    DATASET = args.dataset
     dists, keys = inference.load_distributions()
     m, n, _ = dists.shape
-    _, human_probs, _ = cifar10h.prepare()
+    human_probs = target_source.human_probs(DATASET)
     he = entropy_of(human_probs[:n])
 
     ensemble_jsd = mean_pairwise_jsd(dists)
@@ -103,9 +108,10 @@ def main():
     sim_col = f"v4 sim ({V4_N})"
     print(f"  {'metric':<28} {real_col:>12} {sim_col:>14} {'delta':>10}")
     print("  " + "-" * 64)
-    _row("Pearson r (JSD vs H_human)", r_jsd, V4["r_jsd"])
-    _row("Spearman rho (JSD)", rho_jsd, V4["rho_jsd"])
-    _row("Pearson r (dual signal)", r_dual, V4["r_dual"])
+    _bench = (lambda k: V4[k] if DATASET=="cifar10h" else None)
+    _row("Pearson r (JSD vs H_human)", r_jsd, _bench("r_jsd"))
+    _row("Spearman rho (JSD)", rho_jsd, _bench("rho_jsd"))
+    _row("Pearson r (dual signal)", r_dual, _bench("r_dual"))
     if esc_rate is not None:
         _row("Escalation rate", esc_rate, V4["frontier_pct"], fmt="{:.3f}")
     print(f"  (delta is informational; v4 sim is full-dataset, "

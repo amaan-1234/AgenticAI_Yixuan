@@ -18,7 +18,7 @@ from scipy.stats import mode as scipy_mode
 from sklearn.model_selection import train_test_split
 
 from cac import config
-from cac.data import cifar10h
+from cac.data import target_source
 from cac.ensemble.jsd import mean_pairwise_jsd
 from cac.pipeline import calibration, figures, metrics, prerouter, weights
 from cac.targets import BUDGET, hard_mask
@@ -30,20 +30,19 @@ def _split(n):
     return train_test_split(np.arange(n), test_size=0.3, random_state=42)
 
 
-def _gather_real():
+def _gather_real(dataset='cifar10h'):
     """Return (dists (M,N,K), mta (N,), embeddings (N,384), human_probs (N,10), keys)."""
     from cac.ensemble import inference
     from cac.mta.cross_encoder import MTAScorer
 
     dists, keys = inference.load_distributions()
     n = dists.shape[1]
-    _, human_probs, _ = cifar10h.prepare()
-    human_probs = human_probs[:n]
+    human_probs = target_source.human_probs(dataset)[:n]
 
     rationales = inference.load_rationales(keys)
     mta = MTAScorer().mta_for_rationales(rationales)
 
-    emb = np.load(config.DINO_EMB)[:n]
+    emb = target_source.embeddings(dataset, n)
     assert emb.shape[0] == n, f"embedding count {emb.shape[0]} != N {n}"
     print(f"[real] N={n}, models={keys}")
     return dists, mta, emb, human_probs, keys
@@ -73,10 +72,10 @@ def _gather_sim():
     return dists, mta, emb, human_probs, keys, ablation
 
 
-def run(mode: str):
+def run(mode: str, dataset: str = 'cifar10h'):
     ablation = None
     if mode == "real":
-        dists, mta, emb, human_probs, keys = _gather_real()
+        dists, mta, emb, human_probs, keys = _gather_real(dataset)
     else:
         dists, mta, emb, human_probs, keys, ablation = _gather_sim()
 
@@ -162,8 +161,9 @@ def main():
     g = ap.add_mutually_exclusive_group(required=True)
     g.add_argument("--simulate", action="store_const", const="sim", dest="mode")
     g.add_argument("--real", action="store_const", const="real", dest="mode")
+    ap.add_argument("--dataset", default="cifar10h", choices=["cifar10h","chaosnli"])
     args = ap.parse_args()
-    run("real" if args.mode == "real" else "sim")
+    run("real" if args.mode == "real" else "sim", args.dataset)
 
 
 if __name__ == "__main__":
